@@ -1,3 +1,4 @@
+import atexit
 import hashlib
 import html as html_lib
 import json
@@ -24,7 +25,6 @@ HEADERS = {
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.7",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
-
 session = requests.Session()
 session.headers.update(HEADERS)
 
@@ -48,10 +48,51 @@ GRATKA_SEARCH_URLS = [
     "https://gratka.pl/motoryzacja/osobowe/ford/tourneo-custom/gdansk",
 ]
 
+_pw = None
+_browser = None
 
-def fetch(url: str, timeout: int = 25) -> str:
+def _close_browser():
+    global _pw, _browser
+    try:
+        if _browser:
+            _browser.close()
+    except Exception:
+        pass
+    try:
+        if _pw:
+            _pw.stop()
+    except Exception:
+        pass
+    _pw = None
+    _browser = None
+
+atexit.register(_close_browser)
+
+
+def browser_html(url: str) -> str:
+    global _pw, _browser
+    from playwright.sync_api import sync_playwright
+    if _browser is None:
+        _pw = sync_playwright().start()
+        _browser = _pw.chromium.launch(headless=True)
+    context = _browser.new_context(
+        locale="pl-PL",
+        user_agent=HEADERS["User-Agent"],
+        extra_http_headers={"Accept-Language": HEADERS["Accept-Language"]},
+    )
+    page = context.new_page()
+    try:
+        response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        page.wait_for_timeout(1800)
+        print(f"[browser] {url} -> HTTP {response.status if response else 'unknown'}")
+        return page.content()
+    finally:
+        context.close()
+
+
+def fetch(url: str, timeout: int = 25, browser_fallback: bool = False) -> str:
     last = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             r = session.get(url, timeout=timeout, allow_redirects=True)
             if r.status_code == 200 and r.text:
@@ -59,7 +100,9 @@ def fetch(url: str, timeout: int = 25) -> str:
             last = RuntimeError(f"HTTP {r.status_code}")
         except Exception as exc:
             last = exc
-        time.sleep(1.5 + attempt)
+        time.sleep(1 + attempt)
+    if browser_fallback:
+        return browser_html(url)
     raise RuntimeError(f"{url}: {last}")
 
 
@@ -78,12 +121,11 @@ def rx_int(text: str, patterns):
 
 
 def detect_seats(text: str):
-    patterns = [
+    for p in [
         r"\b([89])\s*(?:os\.|osób|osob(?:owy|owa|owe|owych)?|miejsc(?:a)?|miejscowy|miejscowe|foteli)\b",
         r"\b([89])[-\s]?(?:cio[-\s]?)?osob",
         r"\b([89])[-\s]?miejsc",
-    ]
-    for p in patterns:
+    ]:
         m = re.search(p, text, flags=re.I)
         if m:
             return int(m.group(1))
@@ -114,9 +156,7 @@ def jsonld_objects(soup):
             cur = stack.pop()
             if isinstance(cur, dict):
                 yield cur
-                for v in cur.values():
-                    if isinstance(v, (dict, list)):
-                        stack.append(v)
+                stack.extend(v for v in cur.values() if isinstance(v, (dict, list)))
             elif isinstance(cur, list):
                 stack.extend(cur)
 
@@ -129,8 +169,7 @@ def first_meta(soup, *keys):
     return None
 
 
-def generic_detail(url: str, source: str) -> dict:
-    raw = fetch(url)
+def parse_detail_html(raw: str, url: str, source: str) -> dict:
     soup = BeautifulSoup(raw, "html.parser")
     text = clean_text(soup.get_text(" ", strip=True))
     lower = text.lower()
@@ -141,36 +180,20 @@ def generic_detail(url: str, source: str) -> dict:
         title = clean_text(h1.get_text(" ", strip=True)) if h1 else ""
 
     image_url = first_meta(soup, ("property", "og:image"), ("name", "twitter:image"))
-    published_at = first_meta(
-        soup,
-        ("property", "article:published_time"),
-        ("property", "article:modified_time"),
-    )
-
-    price = None
-    year = None
-    mileage = None
-    seats = None
-    power = None
-    engine = None
-    location = None
-    lat = None
-    lon = None
+    published_at = first_meta(soup, ("property", "article:published_time"), ("property", "article:modified_time"))
+    price = year = mileage = seats = power = None
+    engine = location = None
+    lat = lon = None
 
     for obj in jsonld_objects(soup):
         if price is None:
-            p = obj.get("price")
-            if p is not None:
-                try:
-                    price = int(float(str(p).replace(",", ".")))
-                except Exception:
-                    pass
-            offers = obj.get("offers")
-            if price is None and isinstance(offers, dict) and offers.get("price") is not None:
-                try:
-                    price = int(float(str(offers["price"]).replace(",", ".")))
-                except Exception:
-                    pass
+            for candidate in [obj.get("price"), (obj.get("offers") or {}).get("price") if isinstance(obj.get("offers"), dict) else None]:
+                if candidate is not None:
+                    try:
+                        price = int(float(str(candidate).replace(",", ".")))
+                        break
+                    except Exception:
+                        pass
 
         if published_at is None:
             published_at = obj.get("datePosted") or obj.get("datePublished") or obj.get("uploadDate") or obj.get("dateModified")
@@ -179,24 +202,23 @@ def generic_detail(url: str, source: str) -> dict:
             img = obj.get("image")
             if isinstance(img, str):
                 image_url = img
-            elif isinstance(img, list) and img:
-                image_url = img[0] if isinstance(img[0], str) else None
+            elif isinstance(img, list) and img and isinstance(img[0], str):
+                image_url = img[0]
             elif isinstance(img, dict):
                 image_url = img.get("url") or img.get("contentUrl")
 
         if year is None:
             for k in ("vehicleModelDate", "productionDate", "releaseDate"):
-                if obj.get(k):
-                    m = re.search(r"(20\d{2}|19\d{2})", str(obj[k]))
-                    if m:
-                        year = int(m.group(1))
-                        break
+                m = re.search(r"(20\d{2}|19\d{2})", str(obj.get(k) or ""))
+                if m:
+                    year = int(m.group(1))
+                    break
 
         if mileage is None:
             odo = obj.get("mileageFromOdometer")
-            if isinstance(odo, dict) and odo.get("value") is not None:
+            if isinstance(odo, dict):
                 try:
-                    mileage = int(float(str(odo["value"])))
+                    mileage = int(float(str(odo.get("value"))))
                 except Exception:
                     pass
 
@@ -206,16 +228,6 @@ def generic_detail(url: str, source: str) -> dict:
             except Exception:
                 pass
 
-        if power is None:
-            hp = obj.get("vehicleEngine") or obj.get("engine")
-            if isinstance(hp, dict):
-                pwr = hp.get("enginePower")
-                if isinstance(pwr, dict):
-                    try:
-                        power = int(float(str(pwr.get("value"))))
-                    except Exception:
-                        pass
-
         geo = obj.get("geo")
         if isinstance(geo, dict):
             lat = lat or geo.get("latitude")
@@ -223,37 +235,34 @@ def generic_detail(url: str, source: str) -> dict:
 
         addr = obj.get("address")
         if isinstance(addr, dict) and not location:
-            city = addr.get("addressLocality")
-            region = addr.get("addressRegion")
-            location = ", ".join(x for x in [city, region] if x)
+            location = ", ".join(x for x in [addr.get("addressLocality"), addr.get("addressRegion")] if x)
 
     if price is None:
-        price = rx_int(text, [
-            r"(\d[\d\s\xa0]{2,})\s*zł",
-            r"Cena\s*[:\-]?\s*(\d[\d\s\xa0]{2,})",
-        ])
+        price = rx_int(text, [r"(\d[\d\s\xa0]{2,})\s*zł", r"Cena\s*[:\-]?\s*(\d[\d\s\xa0]{2,})"])
     if year is None:
-        year = rx_int(text, [r"Rok produkcji\s*[:\-]?\s*(20\d{2}|19\d{2})", r"\b(20\d{2}|19\d{2})\s*Rok produkcji"])
+        year = rx_int(text, [r"Rok produkcji\s*[:\-]?\s*(20\d{2}|19\d{2})", r"\b(20\d{2}|19\d{2})\b"])
     if mileage is None:
-        mileage = rx_int(text, [r"Przebieg\s*[:\-]?\s*([\d\s\xa0.]{3,})\s*km", r"([\d\s\xa0.]{3,})\s*km\s*Przebieg"])
+        mileage = rx_int(text, [r"Przebieg\s*[:\-]?\s*([\d\s\xa0.]{3,})\s*km", r"([\d\s\xa0.]{3,})\s*km"])
     if seats is None:
         seats = detect_seats(text)
-    if power is None:
-        power = rx_int(text, [r"Moc(?: silnika)?\s*[:\-]?\s*(\d{2,3})\s*KM", r"(\d{2,3})\s*KM"])
-    if engine is None:
-        cc = rx_int(text, [r"Pojemność(?: silnika| skokowa)?(?: \[cm3\])?\s*[:\-]?\s*([\d\s]{3,5})"])
-        if cc:
-            engine = f"{cc} cm³"
+    power = rx_int(text, [r"Moc(?: silnika)?\s*[:\-]?\s*(\d{2,3})\s*KM", r"\b(\d{2,3})\s*KM\b"])
+    cc = rx_int(text, [r"Pojemność(?: silnika| skokowa)?(?: \[cm3\])?\s*[:\-]?\s*([\d\s]{3,5})"])
+    if cc:
+        engine = f"{cc} cm³"
 
     if not published_at:
-        m = re.search(r"(?:Ost\. aktualizacja ogłoszenia|Ostatnia aktualizacja)\s*:?\s*(20\d{2}-\d{2}-\d{2}(?:\s+\d{2}:\d{2})?)", text, flags=re.I)
+        m = re.search(r"(?:Ost\. aktualizacja ogłoszenia|Ostatnia aktualizacja|Dodano)\s*:?\s*([^|]{5,30})", text, flags=re.I)
         if m:
-            published_at = m.group(1)
+            published_at = clean_text(m.group(1))
 
     if not location:
-        m = re.search(r"(?:Lokalizacja\s*)?([A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż .-]{2,50}),\s*(pomorskie|warmińsko-mazurskie|kujawsko-pomorskie|zachodniopomorskie|wielkopolskie)", text, flags=re.I)
+        m = re.search(r"([A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż .-]{2,50})\s*\((Pomorskie|Warmińsko-Mazurskie|Kujawsko-Pomorskie|Zachodniopomorskie|Wielkopolskie|Mazowieckie)\)", text, flags=re.I)
         if m:
-            location = clean_text(f"{m.group(1)}, {m.group(2)}")
+            location = f"{clean_text(m.group(1))}, {m.group(2)}"
+        else:
+            m = re.search(r"([A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż .-]{2,50}),\s*(pomorskie|warmińsko-mazurskie|kujawsko-pomorskie|zachodniopomorskie|wielkopolskie|mazowieckie)", text, flags=re.I)
+            if m:
+                location = f"{clean_text(m.group(1))}, {m.group(2)}"
 
     distance = haversine_km(GDANSK_LAT, GDANSK_LON, lat, lon) if lat is not None and lon is not None else None
 
@@ -284,6 +293,15 @@ def generic_detail(url: str, source: str) -> dict:
     }
 
 
+def generic_detail(url: str, source: str) -> dict:
+    raw = fetch(url, browser_fallback=True)
+    item = parse_detail_html(raw, url, source)
+    if item.get("price") is None or item.get("seats") is None or not item.get("title"):
+        rendered = browser_html(url)
+        item = parse_detail_html(rendered, url, source)
+    return item
+
+
 def matches(item: dict):
     reasons = []
     title = (item.get("title") or "").lower()
@@ -298,7 +316,7 @@ def matches(item: dict):
         reasons.append("year missing/<2014")
     if item.get("seats") not in (8, 9):
         reasons.append("8/9 seats not confirmed")
-    if "diesel" not in text and "olej napędowy" not in text and "tdci" not in text and "ecoblue" not in text:
+    if not any(x in text for x in ("diesel", "olej napędowy", "tdci", "ecoblue")):
         reasons.append("diesel not confirmed")
 
     bad = ("uszkodzony", "uszkodzona", "uszkodzone", "powypadkowy", "powypadkowa", "do naprawy", "po wypadku", "po kolizji")
@@ -310,8 +328,8 @@ def matches(item: dict):
         reasons.append(">300 km from Gdańsk")
     elif d is None:
         loc = (item.get("location") or "").lower()
-        safe_regions = ("pomorskie", "warmińsko-mazurskie", "kujawsko-pomorskie")
-        if loc and not any(r in loc for r in safe_regions):
+        # Conservative fallback when the listing does not publish coordinates.
+        if loc and not any(r in loc for r in ("pomorskie", "warmińsko-mazurskie", "kujawsko-pomorskie")):
             reasons.append("distance unknown/outside core region")
     return not reasons, reasons
 
@@ -329,14 +347,11 @@ def extract_autoplac_urls(raw: str):
 def extract_gratka_urls(raw: str):
     text = html_lib.unescape(raw).replace("\\/", "/")
     urls = set()
-    patterns = [
+    for p in [
         r'https://(?:moto)?gratka\.pl/motoryzacja/[^"\'<>\s]+/ob/\d+',
         r'href=["\']([^"\']*/motoryzacja/[^"\']+/ob/\d+)["\']',
-    ]
-    for p in patterns:
+    ]:
         for m in re.findall(p, text, flags=re.I):
-            if isinstance(m, tuple):
-                m = m[0]
             base = "https://motogratka.pl" if str(m).startswith("/") else ""
             urls.add(urljoin(base, m).split("?")[0])
     return sorted(urls)
@@ -348,7 +363,7 @@ def collect_source(source: str, search_urls, extractor):
     seen_urls = set()
     for search_url in search_urls:
         try:
-            raw = fetch(search_url)
+            raw = fetch(search_url, browser_fallback=(source == "AUTOPLAC"))
             successful += 1
             urls = extractor(raw)
             print(f"[{source}] {search_url} -> {len(urls)} links")
@@ -356,7 +371,7 @@ def collect_source(source: str, search_urls, extractor):
             print(f"[{source}] search failed {search_url}: {exc}")
             continue
 
-        for url in urls[:40]:
+        for url in urls[:30]:
             if url in seen_urls:
                 continue
             seen_urls.add(url)
@@ -369,7 +384,7 @@ def collect_source(source: str, search_urls, extractor):
                     print(f"[{source} skip] {url} -> {', '.join(reasons)}")
             except Exception as exc:
                 print(f"[{source}] detail failed {url}: {exc}")
-            time.sleep(0.08)
+            time.sleep(0.05)
     return items, successful
 
 
