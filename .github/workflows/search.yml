@@ -4,6 +4,13 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "search.py"
+      - "requirements.txt"
+      - ".github/workflows/search.yml"
 
 permissions:
   contents: write
