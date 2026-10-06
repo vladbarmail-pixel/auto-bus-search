@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urljoin
 
 import requests
 from bs4 import BeautifulSoup
+from extra_sources import collect_autoplac, collect_gratka
 
 ROOT = Path(__file__).resolve().parent
 SEEN_FILE = ROOT / "seen.json"
@@ -491,7 +492,12 @@ def format_published(value) -> str | None:
 
 
 def make_message(item: dict) -> str:
-    source_icon = "🔵" if item["source"] == "OTOMOTO" else "🟢"
+    source_icon = {
+        "OTOMOTO": "🔵",
+        "OLX": "🟢",
+        "AUTOPLAC": "🟣",
+        "GRATKA": "🟠",
+    }.get(item["source"], "🚐")
     lines = [
         f"{source_icon} {item['source']} — NOWE OGŁOSZENIE", "",
         f"🚐 {item['title'] or 'Ford Custom'}",
@@ -553,11 +559,30 @@ def save_seen(seen: set[str]):
 def collect() -> list[dict]:
     otomoto_items, otomoto_ok = collect_otomoto()
     olx_items, olx_ok = collect_olx()
-    print(f"Source health: OTOMOTO searches OK={otomoto_ok}/{len(OTOMOTO_URLS)}, OLX API searches OK={olx_ok}/{len(OLX_QUERIES)}")
-    if otomoto_ok == 0 and olx_ok == 0:
-        raise RuntimeError("Both OTOMOTO and OLX are unavailable")
+    autoplac_items, autoplac_ok = collect_autoplac()
+    gratka_items, gratka_ok = collect_gratka()
+
+    print(
+        f"Source health: OTOMOTO={otomoto_ok}/{len(OTOMOTO_URLS)}, "
+        f"OLX={olx_ok}/{len(OLX_QUERIES)}, "
+        f"AUTOPLAC={autoplac_ok}, GRATKA={gratka_ok}"
+    )
+    if otomoto_ok == 0 and olx_ok == 0 and autoplac_ok == 0 and gratka_ok == 0:
+        raise RuntimeError("All listing sources are unavailable")
+
     unique = {}
-    for item in otomoto_items + olx_items:
+    fingerprints = set()
+    for item in otomoto_items + olx_items + autoplac_items + gratka_items:
+        fp = (
+            (item.get("year") or 0),
+            (item.get("price") or 0),
+            (item.get("mileage") or 0),
+            (item.get("seats") or 0),
+            re.sub(r"\W+", "", (item.get("title") or "").lower())[:50],
+        )
+        if fp in fingerprints:
+            continue
+        fingerprints.add(fp)
         unique[item["id"]] = item
     return list(unique.values())
 
@@ -575,7 +600,7 @@ def main():
             telegram_send(
                 "✅ Monitoring uruchomiony.\n"
                 f"Zapisano {len(current_ids)} aktualnych pasujących ogłoszeń jako punkt startowy.\n"
-                "Źródła: OTOMOTO + OLX.\n"
+                "Źródła: OTOMOTO + OLX + AUTOPLAC + GRATKA.\n"
                 "Od teraz wysyłam tylko nowe oferty spełniające filtry."
             )
         return
