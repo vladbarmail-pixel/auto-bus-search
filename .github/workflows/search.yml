@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - "search.py"
+      - "extra_sources.py"
       - "requirements.txt"
       - ".github/workflows/search.yml"
 
