@@ -359,9 +359,17 @@ def matches(item: dict) -> tuple[bool, list[str]]:
     if "diesel" not in fuel and "olej napędowy" not in fuel:
         reasons.append("diesel not confirmed")
 
+    # OLX Poland exposes the technical condition explicitly:
+    # uzywane/nowe = OK, uszkodzone = damaged. Do not scan the whole
+    # description for the word "uszkodzony", because OLX boilerplate can
+    # mention that word even for an undamaged vehicle.
     condition = item.get("condition_lower") or ""
-    bad_terms = ("uszkodzony", "uszkodzona", "uszkodzone", "powypadkowy", "powypadkowa", "do naprawy", "po wypadku", "po kolizji", "damaged")
-    if any(term in (condition + " " + text) for term in bad_terms):
+    title_damage_terms = (
+        "uszkodzony", "uszkodzona", "uszkodzone",
+        "powypadkowy", "powypadkowa", "do naprawy",
+        "po wypadku", "po kolizji",
+    )
+    if "uszkodzone" in condition or any(term in title_lower for term in title_damage_terms):
         reasons.append("damaged")
 
     distance = item.get("distance_km")
