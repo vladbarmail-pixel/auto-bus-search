@@ -17,7 +17,8 @@ SEEN_FILE = ROOT / "seen.json"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-FIRST_RUN_SEND = os.getenv("FIRST_RUN_SEND", "false").lower() == "true"\nTEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+FIRST_RUN_SEND = os.getenv("FIRST_RUN_SEND", "false").lower() == "true"
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 MAX_PRICE = 45000
 MIN_YEAR = 2014
