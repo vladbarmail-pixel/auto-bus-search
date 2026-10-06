@@ -69,6 +69,20 @@ def _close_browser():
 atexit.register(_close_browser)
 
 
+def reader_text(url: str) -> str:
+    stripped = re.sub(r"^https?://", "", url)
+    proxy_url = "https://r.jina.ai/http://" + stripped
+    r = session.get(
+        proxy_url,
+        timeout=45,
+        headers={"User-Agent": HEADERS["User-Agent"], "Accept": "text/plain"},
+    )
+    if r.status_code == 200 and r.text:
+        print(f"[reader] {url} -> OK {len(r.text)} chars")
+        return r.text
+    raise RuntimeError(f"reader HTTP {r.status_code}")
+
+
 def browser_html(url: str) -> str:
     global _pw, _browser
     from playwright.sync_api import sync_playwright
@@ -84,7 +98,10 @@ def browser_html(url: str) -> str:
     try:
         response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
         page.wait_for_timeout(1800)
-        print(f"[browser] {url} -> HTTP {response.status if response else 'unknown'}")
+        status = response.status if response else 0
+        print(f"[browser] {url} -> HTTP {status or 'unknown'}")
+        if status and status >= 400:
+            raise RuntimeError(f"browser HTTP {status}")
         return page.content()
     finally:
         context.close()
@@ -102,7 +119,13 @@ def fetch(url: str, timeout: int = 25, browser_fallback: bool = False) -> str:
             last = exc
         time.sleep(1 + attempt)
     if browser_fallback:
-        return browser_html(url)
+        try:
+            return browser_html(url)
+        except Exception as browser_exc:
+            try:
+                return reader_text(url)
+            except Exception as reader_exc:
+                raise RuntimeError(f"{url}: direct={last}; browser={browser_exc}; reader={reader_exc}")
     raise RuntimeError(f"{url}: {last}")
 
 
@@ -178,8 +201,16 @@ def parse_detail_html(raw: str, url: str, source: str) -> dict:
     if not title:
         h1 = soup.find("h1")
         title = clean_text(h1.get_text(" ", strip=True)) if h1 else ""
+    if not title:
+        m = re.search(r"(?mi)^Title:\s*(.+)$", raw)
+        if m:
+            title = clean_text(m.group(1))
 
     image_url = first_meta(soup, ("property", "og:image"), ("name", "twitter:image"))
+    if not image_url:
+        m = re.search(r"!\[[^\]]*\]\((https?://[^)\s]+)", raw)
+        if m:
+            image_url = m.group(1)
     published_at = first_meta(soup, ("property", "article:published_time"), ("property", "article:modified_time"))
     price = year = mileage = seats = power = None
     engine = location = None
@@ -297,7 +328,10 @@ def generic_detail(url: str, source: str) -> dict:
     raw = fetch(url, browser_fallback=True)
     item = parse_detail_html(raw, url, source)
     if item.get("price") is None or item.get("seats") is None or not item.get("title"):
-        rendered = browser_html(url)
+        try:
+            rendered = browser_html(url)
+        except Exception:
+            rendered = reader_text(url)
         item = parse_detail_html(rendered, url, source)
     return item
 
