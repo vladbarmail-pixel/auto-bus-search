@@ -198,10 +198,21 @@ def parse_otomoto_listing(url: str) -> dict:
         title = clean_text(soup.title.get_text(" ", strip=True))
 
     price = None
+    published_at = None
+    image_url = None
     for obj in first_json_ld(soup):
-        price = deep_find_price(obj)
-        if price:
-            break
+        if price is None:
+            price = deep_find_price(obj)
+        if published_at is None:
+            published_at = obj.get("datePosted") or obj.get("datePublished") or obj.get("uploadDate")
+        if image_url is None:
+            img = obj.get("image")
+            if isinstance(img, str):
+                image_url = img
+            elif isinstance(img, list) and img:
+                image_url = img[0] if isinstance(img[0], str) else None
+            elif isinstance(img, dict):
+                image_url = img.get("url") or img.get("contentUrl")
     if not price:
         price = rx_int(page_text, [r"(\d[\d\s\xa0]{2,})\s*PLN", r"Cena(?:\s+brutto)?\s*[:\-]?\s*(\d[\d\s\xa0]{2,})"])
 
@@ -230,6 +241,7 @@ def parse_otomoto_listing(url: str) -> dict:
         "price": price, "year": year, "mileage": mileage, "seats": seats,
         "power": power, "engine": engine, "location": location,
         "text_lower": lower, "distance_km": None,
+        "published_at": published_at, "image_url": image_url,
     }
 
 
@@ -328,6 +340,17 @@ def parse_olx_offer(offer: dict) -> dict:
     url = offer.get("url") or ""
     offer_id = offer.get("id")
     item_id = f"olx:{offer_id}" if offer_id else "olx:" + hashlib.sha1(url.encode()).hexdigest()[:16]
+    published_at = offer.get("created_time") or offer.get("created_at") or offer.get("published_at")
+    image_url = None
+    photos = offer.get("photos") or []
+    if photos:
+        photo = photos[0]
+        if isinstance(photo, dict):
+            image_url = photo.get("link") or photo.get("url")
+            if image_url and "{width}" in image_url:
+                image_url = image_url.replace("{width}", "800").replace("{height}", "600")
+        elif isinstance(photo, str):
+            image_url = photo
     power = int_from_value(params.get("enginepower") or {})
     engine_cc = int_from_value(params.get("enginesize") or {})
 
@@ -337,6 +360,7 @@ def parse_olx_offer(offer: dict) -> dict:
         "power": power, "engine": f"{engine_cc} cm³" if engine_cc else None,
         "location": location, "text_lower": lower, "fuel_lower": fuel,
         "condition_lower": condition, "distance_km": distance,
+        "published_at": published_at, "image_url": image_url,
     }
 
 
@@ -448,6 +472,23 @@ def fmt_num(value):
     return f"{value:,}".replace(",", " ") if isinstance(value, int) else "brak danych"
 
 
+def format_published(value) -> str | None:
+    if not value:
+        return None
+    try:
+        from datetime import datetime, timezone
+        s = str(value).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        # Poland: UTC+2 on the current October runs; zoneinfo handles DST automatically.
+        from zoneinfo import ZoneInfo
+        dt = dt.astimezone(ZoneInfo("Europe/Warsaw"))
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except Exception:
+        return str(value)
+
+
 def make_message(item: dict) -> str:
     source_icon = "🔵" if item["source"] == "OTOMOTO" else "🟢"
     lines = [
@@ -458,6 +499,9 @@ def make_message(item: dict) -> str:
         f"🛣 Przebieg: {fmt_num(item['mileage'])} km" if item["mileage"] else "🛣 Przebieg: brak danych",
         f"👥 Miejsca: {item['seats'] or 'brak danych'}",
     ]
+    published = format_published(item.get("published_at"))
+    if published:
+        lines.append(f"🕒 Opublikowano: {published}")
     if item["engine"] or item["power"]:
         extra = " / ".join(x for x in [item["engine"], f"{item['power']} KM" if item["power"] else None] if x)
         lines.append(f"⚙️ {extra}")
@@ -469,9 +513,22 @@ def make_message(item: dict) -> str:
     return "\n".join(lines)[:3900]
 
 
-def telegram_send(text: str):
+def telegram_send(text: str, item: dict | None = None):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
+
+    image_url = item.get("image_url") if item else None
+    if image_url:
+        photo_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+        r = requests.post(
+            photo_url,
+            json={"chat_id": TELEGRAM_CHAT_ID, "photo": image_url, "caption": text[:1024]},
+            timeout=25,
+        )
+        if r.ok:
+            return
+        print(f"[Telegram] sendPhoto failed ({r.status_code}); falling back to text")
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "disable_web_page_preview": False}, timeout=20)
     if not r.ok:
@@ -524,7 +581,7 @@ def main():
 
     new_items = [item for item in items if item["id"] not in seen]
     for item in new_items[:20]:
-        telegram_send(make_message(item))
+        telegram_send(make_message(item), item)
         seen.add(item["id"])
         time.sleep(0.8)
     save_seen(seen)
