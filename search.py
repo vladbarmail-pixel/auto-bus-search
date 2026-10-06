@@ -65,6 +65,9 @@ API_HEADERS = {
     "User-Agent": HEADERS["User-Agent"],
     "Accept-Language": HEADERS["Accept-Language"],
     "Accept": "application/json",
+    "Referer": "https://www.olx.pl/",
+    "Origin": "https://www.olx.pl",
+    "Connection": "keep-alive",
 }
 
 session = requests.Session()
