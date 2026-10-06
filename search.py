@@ -1,12 +1,13 @@
 import hashlib
 import html as html_lib
 import json
+import math
 import os
 import re
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -18,50 +19,63 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 FIRST_RUN_SEND = os.getenv("FIRST_RUN_SEND", "false").lower() == "true"
 
-OTOMOTO_URL = os.getenv(
-    "OTOMOTO_URL",
-    "https://www.otomoto.pl/osobowe/ford/tourneo-custom--transit-custom/seg-minivan/od-2014/gdansk"
-    "?search%5Bdist%5D=300"
-    "&search%5Bfilter_enum_damaged%5D=0"
-    "&search%5Bfilter_enum_fuel_type%5D=diesel"
-    "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
-    "&search%5Bfilter_float_nr_seats%5D%5B1%5D=9"
-    "&search%5Bfilter_float_price%3Ato%5D=45000"
-    "&search%5Border%5D=created_at_first%3Adesc",
-)
+MAX_PRICE = 45000
+MIN_YEAR = 2014
+MAX_DISTANCE_KM = 300
+GDANSK_LAT = 54.3520
+GDANSK_LON = 18.6466
 
-OLX_URLS = [
-    os.getenv(
-        "OLX_TRANSIT_URL",
-        "https://www.olx.pl/motoryzacja/samochody/gdansk/q-ford-transit-custom/"
-        "?search%5Bdist%5D=300&search%5Border%5D=created_at%3Adesc",
+OTOMOTO_URLS = [
+    (
+        "OTOMOTO",
+        "https://www.otomoto.pl/osobowe/ford/transit-custom/od-2014/gdansk"
+        "?search%5Bdist%5D=300"
+        "&search%5Bfilter_enum_damaged%5D=0"
+        "&search%5Bfilter_enum_fuel_type%5D=diesel"
+        "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
+        "&search%5Bfilter_float_nr_seats%5D%5B1%5D=9"
+        "&search%5Bfilter_float_price%3Ato%5D=45000"
+        "&search%5Border%5D=created_at_first%3Adesc",
     ),
-    os.getenv(
-        "OLX_TOURNEO_URL",
-        "https://www.olx.pl/motoryzacja/samochody/gdansk/q-ford-tourneo-custom/"
-        "?search%5Bdist%5D=300&search%5Border%5D=created_at%3Adesc",
+    (
+        "OTOMOTO",
+        "https://www.otomoto.pl/osobowe/ford/tourneo-custom/od-2014/gdansk"
+        "?search%5Bdist%5D=300"
+        "&search%5Bfilter_enum_damaged%5D=0"
+        "&search%5Bfilter_enum_fuel_type%5D=diesel"
+        "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
+        "&search%5Bfilter_float_nr_seats%5D%5B1%5D=9"
+        "&search%5Bfilter_float_price%3Ato%5D=45000"
+        "&search%5Border%5D=created_at_first%3Adesc",
     ),
 ]
+
+OLX_QUERIES = ["Ford Transit Custom", "Ford Tourneo Custom"]
 
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/154.0.0.0 Safari/537.36"
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.7",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+}
+API_HEADERS = {
+    "User-Agent": HEADERS["User-Agent"],
+    "Accept-Language": HEADERS["Accept-Language"],
+    "Accept": "application/json",
 }
 
 session = requests.Session()
 session.headers.update(HEADERS)
 
 
-def fetch(url: str, timeout: int = 25) -> str:
+def fetch(url: str, timeout: int = 25, headers=None) -> str:
     last_error = None
     for attempt in range(3):
         try:
-            r = session.get(url, timeout=timeout, allow_redirects=True)
+            r = session.get(url, timeout=timeout, allow_redirects=True, headers=headers)
             if r.status_code == 200 and r.text:
                 return r.text
             last_error = RuntimeError(f"HTTP {r.status_code} for {url}")
@@ -78,29 +92,16 @@ def normalize_html(raw: str) -> str:
     return raw
 
 
-def extract_listing_urls(raw: str, source: str) -> list[str]:
+def extract_otomoto_urls(raw: str) -> list[str]:
     text = normalize_html(raw)
     urls = set()
-
-    if source == "OTOMOTO":
-        patterns = [
-            r'https://www\.otomoto\.pl/osobowe/oferta/[^"\'<>s]+?\.html',
-            r'/osobowe/oferta/[^"\'<>s]+?\.html',
-        ]
-        base = "https://www.otomoto.pl"
-    else:
-        patterns = [
-            r'https://www\.olx\.pl/d/oferta/[^"\'<>s]+?\.html',
-            r'/d/oferta/[^"\'<>s]+?\.html',
-        ]
-        base = "https://www.olx.pl"
-
+    patterns = [
+        r'https://www\.otomoto\.pl/osobowe/oferta/[^"\'<>\s]+?\.html',
+        r'/osobowe/oferta/[^"\'<>\s]+?\.html',
+    ]
     for pat in patterns:
         for match in re.findall(pat, text, flags=re.I):
-            url = urljoin(base, match)
-            url = url.split("?")[0]
-            urls.add(url)
-
+            urls.add(urljoin("https://www.otomoto.pl", match).split("?")[0])
     return sorted(urls)
 
 
@@ -153,7 +154,7 @@ def clean_text(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip()
 
 
-def parse_listing(url: str, source: str) -> dict:
+def parse_otomoto_listing(url: str) -> dict:
     raw = fetch(url)
     soup = BeautifulSoup(raw, "html.parser")
     page_text = clean_text(soup.get_text(" ", strip=True))
@@ -172,107 +173,233 @@ def parse_listing(url: str, source: str) -> dict:
         if price:
             break
     if not price:
-        price = rx_int(
-            page_text,
-            [
-                r'(\d[\d\s\xa0]{2,})\s*PLN',
-                r'Cena(?:\s+brutto)?\s*[:\-]?\s*(\d[\d\s\xa0]{2,})',
-            ],
-        )
+        price = rx_int(page_text, [r"(\d[\d\s\xa0]{2,})\s*PLN", r"Cena(?:\s+brutto)?\s*[:\-]?\s*(\d[\d\s\xa0]{2,})"])
 
-    year = rx_int(page_text, [r'Rok produkcji\s*[:\-]?\s*(20\d{2}|19\d{2})'])
-    mileage = rx_int(page_text, [r'Przebieg\s*[:\-]?\s*([\d\s\xa0]{3,})\s*km'])
-    seats = rx_int(page_text, [r'Liczba miejsc\s*[:\-]?\s*(\d{1,2})'])
-    power = rx_int(page_text, [r'Moc\s*[:\-]?\s*(\d{2,3})\s*KM'])
+    year = rx_int(page_text, [r"Rok produkcji\s*[:\-]?\s*(20\d{2}|19\d{2})"])
+    mileage = rx_int(page_text, [r"Przebieg\s*[:\-]?\s*([\d\s\xa0]{3,})\s*km"])
+    seats = rx_int(page_text, [r"Liczba miejsc\s*[:\-]?\s*(\d{1,2})"])
+    power = rx_int(page_text, [r"Moc\s*[:\-]?\s*(\d{2,3})\s*KM"])
+
     engine = None
-    m = re.search(r'Pojemność skokowa\s*[:\-]?\s*([\d\s\xa0]{3,5})\s*cm', page_text, flags=re.I)
+    m = re.search(r"Pojemność skokowa\s*[:\-]?\s*([\d\s\xa0]{3,5})\s*cm", page_text, flags=re.I)
     if m:
         engine = re.sub(r"\s+", "", m.group(1)) + " cm³"
 
     location = None
-    loc_patterns = [
-        r'Znajdź na mapie\s+([^|]{2,80}?)(?:\s{2,}|Kontakt|Prawa konsumentów|$)',
-        r'Lokalizacja\s*[:\-]?\s*([^|]{2,80}?)(?:\s{2,}|$)',
-    ]
-    for p in loc_patterns:
-        m = re.search(p, page_text, flags=re.I)
-        if m:
-            location = clean_text(m.group(1))[:80]
-            break
+    desc = soup.find("meta", attrs={"name": "description"})
+    if desc and desc.get("content"):
+        dm = re.search(r"(Gdańsk|Gdynia|Sopot|Szczecin|Elbląg|Olsztyn|Bydgoszcz|Toruń|Koszalin|Poznań|Piła|Grudziądz|Iława)[^,.;]{0,60}", desc["content"], flags=re.I)
+        if dm:
+            location = clean_text(dm.group(0))
 
-    if not location:
-        desc = soup.find("meta", attrs={"name": "description"})
-        if desc and desc.get("content"):
-            dm = re.search(
-                r'(Gdańsk|Gdynia|Sopot|Szczecin|Elbląg|Olsztyn|Bydgoszcz|Toruń|Koszalin|Poznań|Konin|Warszawa)[^,.;]{0,60}',
-                desc["content"],
-                flags=re.I,
-            )
-            if dm:
-                location = clean_text(dm.group(0))
-
-    item_id = None
-    if source == "OTOMOTO":
-        m = re.search(r'-ID([A-Za-z0-9]+)\.html', url)
-        if m:
-            item_id = "otomoto:" + m.group(1)
-    else:
-        m = re.search(r'-ID([A-Za-z0-9]+)\.html', url)
-        if m:
-            item_id = "olx:" + m.group(1)
-    if not item_id:
-        item_id = source.lower() + ":" + hashlib.sha1(url.encode()).hexdigest()[:16]
+    m = re.search(r"-ID([A-Za-z0-9]+)\.html", url)
+    item_id = "otomoto:" + (m.group(1) if m else hashlib.sha1(url.encode()).hexdigest()[:16])
 
     return {
-        "id": item_id,
-        "source": source,
-        "url": url,
-        "title": title,
-        "price": price,
-        "year": year,
-        "mileage": mileage,
-        "seats": seats,
-        "power": power,
-        "engine": engine,
-        "location": location,
-        "text_lower": lower,
+        "id": item_id, "source": "OTOMOTO", "url": url, "title": title,
+        "price": price, "year": year, "mileage": mileage, "seats": seats,
+        "power": power, "engine": engine, "location": location,
+        "text_lower": lower, "distance_km": None,
+    }
+
+
+def param_map(offer: dict) -> dict:
+    out = {}
+    for p in offer.get("params") or []:
+        key = p.get("key")
+        if key:
+            out[key] = p.get("value") or {}
+    return out
+
+
+def value_key(v):
+    return str(v.get("key")) if isinstance(v, dict) and v.get("key") is not None else ""
+
+
+def value_label(v):
+    return str(v.get("label")) if isinstance(v, dict) and v.get("label") is not None else ""
+
+
+def int_from_value(v):
+    if isinstance(v, dict):
+        for k in ("value", "key", "label"):
+            if v.get(k) is not None:
+                s = re.sub(r"\D", "", str(v.get(k)))
+                if s:
+                    try:
+                        return int(s)
+                    except Exception:
+                        pass
+    return None
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    try:
+        lat1, lon1, lat2, lon2 = map(float, (lat1, lon1, lat2, lon2))
+    except Exception:
+        return None
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def detect_seats(text: str):
+    patterns = [
+        r"\b([89])\s*(?:os\.|osob(?:owy|owe|owych)?|miejsc(?:a)?|miejscowy|miejscowe)\b",
+        r"\b([89])[-\s]?osob",
+        r"\b([89])[-\s]?miejsc",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.I)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def parse_olx_offer(offer: dict) -> dict:
+    params = param_map(offer)
+    title = clean_text(offer.get("title") or "")
+    description = clean_text(offer.get("description") or "")
+    labels = " ".join(value_label(v) + " " + value_key(v) for v in params.values())
+    full_text = clean_text(f"{title} {description} {labels}")
+    lower = full_text.lower()
+
+    price_v = params.get("price") or {}
+    price = None
+    if isinstance(price_v, dict):
+        try:
+            price = int(float(price_v.get("value")))
+        except Exception:
+            price = int_from_value(price_v)
+
+    year = int_from_value(params.get("year") or {})
+    mileage = int_from_value(params.get("milage") or {})
+    fuel = (value_key(params.get("petrol") or {}) + " " + value_label(params.get("petrol") or {})).lower()
+    condition = (value_key(params.get("condition") or {}) + " " + value_label(params.get("condition") or {})).lower()
+    seats = detect_seats(full_text)
+
+    location_obj = offer.get("location") or {}
+    city = location_obj.get("city") or {}
+    region = location_obj.get("region") or {}
+    city_name = city.get("name") if isinstance(city, dict) else None
+    region_name = region.get("name") if isinstance(region, dict) else None
+    location = ", ".join(x for x in [city_name, region_name] if x) or None
+
+    map_obj = offer.get("map") or {}
+    lat = map_obj.get("lat") if isinstance(map_obj, dict) else None
+    lon = map_obj.get("lon") if isinstance(map_obj, dict) else None
+    if lon is None and isinstance(map_obj, dict):
+        lon = map_obj.get("lng")
+    distance = haversine_km(GDANSK_LAT, GDANSK_LON, lat, lon) if lat is not None and lon is not None else None
+
+    url = offer.get("url") or ""
+    offer_id = offer.get("id")
+    item_id = f"olx:{offer_id}" if offer_id else "olx:" + hashlib.sha1(url.encode()).hexdigest()[:16]
+    power = int_from_value(params.get("enginepower") or {})
+    engine_cc = int_from_value(params.get("enginesize") or {})
+
+    return {
+        "id": item_id, "source": "OLX", "url": url, "title": title,
+        "price": price, "year": year, "mileage": mileage, "seats": seats,
+        "power": power, "engine": f"{engine_cc} cm³" if engine_cc else None,
+        "location": location, "text_lower": lower, "fuel_lower": fuel,
+        "condition_lower": condition, "distance_km": distance,
     }
 
 
 def matches(item: dict) -> tuple[bool, list[str]]:
     reasons = []
-    title_lower = item["title"].lower()
-    text = item["text_lower"]
+    title_lower = (item.get("title") or "").lower()
+    text = item.get("text_lower") or ""
 
     if "transit custom" not in title_lower and "tourneo custom" not in title_lower:
         if "transit custom" not in text and "tourneo custom" not in text:
             reasons.append("wrong model")
+    if item.get("price") is None or item["price"] > MAX_PRICE:
+        reasons.append("price missing/>45000")
+    if item.get("year") is None or item["year"] < MIN_YEAR:
+        reasons.append("year missing/<2014")
+    if item.get("seats") not in (8, 9):
+        reasons.append("8/9 seats not confirmed")
 
-    if item["price"] is not None and item["price"] > 45000:
-        reasons.append("price > 45000")
+    fuel = item.get("fuel_lower") or text
+    if "diesel" not in fuel and "olej napędowy" not in fuel:
+        reasons.append("diesel not confirmed")
 
-    if item["year"] is not None and item["year"] < 2014:
-        reasons.append("year < 2014")
-
-    if item["seats"] is not None and item["seats"] not in (8, 9):
-        reasons.append("not 8/9 seats")
-
-    if "benzyna" in text and "diesel" not in text:
-        reasons.append("not diesel")
-
-    bad_terms = (
-        "uszkodzony",
-        "uszkodzona",
-        "powypadkowy",
-        "powypadkowa",
-        "do naprawy",
-        "po wypadku",
-        "po kolizji",
-    )
-    if any(term in text for term in bad_terms):
+    condition = item.get("condition_lower") or ""
+    bad_terms = ("uszkodzony", "uszkodzona", "uszkodzone", "powypadkowy", "powypadkowa", "do naprawy", "po wypadku", "po kolizji", "damaged")
+    if any(term in (condition + " " + text) for term in bad_terms):
         reasons.append("damaged")
 
+    distance = item.get("distance_km")
+    if distance is not None and distance > MAX_DISTANCE_KM:
+        reasons.append(">300 km from Gdańsk")
     return (not reasons), reasons
+
+
+def collect_otomoto() -> tuple[list[dict], int]:
+    items = []
+    successful_searches = 0
+    for source, search_url in OTOMOTO_URLS:
+        print(f"[{source}] loading search: {search_url}")
+        try:
+            raw = fetch(search_url)
+            successful_searches += 1
+            urls = extract_otomoto_urls(raw)
+            print(f"[{source}] found {len(urls)} listing URLs")
+        except Exception as exc:
+            print(f"[{source}] search failed: {exc}", file=sys.stderr)
+            continue
+        for url in urls[:40]:
+            try:
+                item = parse_otomoto_listing(url)
+                ok, reasons = matches(item)
+                if ok:
+                    items.append(item)
+                else:
+                    print(f"[skip] {url} -> {', '.join(reasons)}")
+            except Exception as exc:
+                print(f"[{source}] detail failed {url}: {exc}", file=sys.stderr)
+            time.sleep(0.15)
+    return items, successful_searches
+
+
+def collect_olx() -> tuple[list[dict], int]:
+    items = []
+    successful_searches = 0
+    for query in OLX_QUERIES:
+        params = {
+            "category_id": 84, "limit": 50, "offset": 0,
+            "sort_by": "created_at:desc", "query": query,
+            "filter_float_year:from": MIN_YEAR,
+            "filter_float_price:to": MAX_PRICE,
+        }
+        url = "https://www.olx.pl/api/v1/offers/?" + urlencode(params)
+        print(f"[OLX API] loading: {query}")
+        try:
+            raw = fetch(url, headers=API_HEADERS)
+            data = json.loads(raw)
+            offers = data.get("data") or []
+            successful_searches += 1
+            print(f"[OLX API] {query}: {len(offers)} raw offers")
+        except Exception as exc:
+            print(f"[OLX API] {query} failed: {exc}", file=sys.stderr)
+            continue
+
+        for offer in offers:
+            try:
+                item = parse_olx_offer(offer)
+                ok, reasons = matches(item)
+                if ok:
+                    items.append(item)
+                else:
+                    print(f"[OLX skip] {item.get('url')} -> {', '.join(reasons)}")
+            except Exception as exc:
+                print(f"[OLX] offer parse failed: {exc}", file=sys.stderr)
+    return items, successful_searches
 
 
 def fmt_num(value):
@@ -282,8 +409,7 @@ def fmt_num(value):
 def make_message(item: dict) -> str:
     source_icon = "🔵" if item["source"] == "OTOMOTO" else "🟢"
     lines = [
-        f"{source_icon} {item['source']} — NOWE OGŁOSZENIE",
-        "",
+        f"{source_icon} {item['source']} — NOWE OGŁOSZENIE", "",
         f"🚐 {item['title'] or 'Ford Custom'}",
         f"💰 {fmt_num(item['price'])} zł" if item["price"] else "💰 cena: brak danych",
         f"📅 Rok: {item['year'] or 'brak danych'}",
@@ -291,12 +417,12 @@ def make_message(item: dict) -> str:
         f"👥 Miejsca: {item['seats'] or 'brak danych'}",
     ]
     if item["engine"] or item["power"]:
-        extra = " / ".join(
-            x for x in [item["engine"], f"{item['power']} KM" if item["power"] else None] if x
-        )
+        extra = " / ".join(x for x in [item["engine"], f"{item['power']} KM" if item["power"] else None] if x)
         lines.append(f"⚙️ {extra}")
     if item["location"]:
         lines.append(f"📍 {item['location']}")
+    if item.get("distance_km") is not None:
+        lines.append(f"📏 ~{round(item['distance_km'])} km od Gdańska")
     lines.extend(["", f"🔗 {item['url']}"])
     return "\n".join(lines)[:3900]
 
@@ -305,15 +431,7 @@ def telegram_send(text: str):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    r = requests.post(
-        url,
-        json={
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": text,
-            "disable_web_page_preview": False,
-        },
-        timeout=20,
-    )
+    r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "disable_web_page_preview": False}, timeout=20)
     if not r.ok:
         raise RuntimeError(f"Telegram error {r.status_code}: {r.text[:500]}")
 
@@ -329,40 +447,17 @@ def load_seen() -> set[str]:
 
 
 def save_seen(seen: set[str]):
-    SEEN_FILE.write_text(
-        json.dumps(sorted(seen)[-2500:], ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    SEEN_FILE.write_text(json.dumps(sorted(seen)[-2500:], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def collect() -> list[dict]:
-    all_items = []
-    sources = [("OTOMOTO", OTOMOTO_URL)] + [("OLX", u) for u in OLX_URLS]
-
-    for source, search_url in sources:
-        print(f"[{source}] loading search: {search_url}")
-        try:
-            raw = fetch(search_url)
-            urls = extract_listing_urls(raw, source)
-            print(f"[{source}] found {len(urls)} listing URLs")
-        except Exception as exc:
-            print(f"[{source}] search failed: {exc}", file=sys.stderr)
-            continue
-
-        for url in urls[:30]:
-            try:
-                item = parse_listing(url, source)
-                ok, reasons = matches(item)
-                if ok:
-                    all_items.append(item)
-                else:
-                    print(f"[skip] {url} -> {', '.join(reasons)}")
-            except Exception as exc:
-                print(f"[{source}] detail failed {url}: {exc}", file=sys.stderr)
-            time.sleep(0.25)
-
+    otomoto_items, otomoto_ok = collect_otomoto()
+    olx_items, olx_ok = collect_olx()
+    print(f"Source health: OTOMOTO searches OK={otomoto_ok}/{len(OTOMOTO_URLS)}, OLX API searches OK={olx_ok}/{len(OLX_QUERIES)}")
+    if otomoto_ok == 0 and olx_ok == 0:
+        raise RuntimeError("Both OTOMOTO and OLX are unavailable")
     unique = {}
-    for item in all_items:
+    for item in otomoto_items + olx_items:
         unique[item["id"]] = item
     return list(unique.values())
 
@@ -378,19 +473,18 @@ def main():
         save_seen(seen)
         if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
             telegram_send(
-                f"✅ Monitoring uruchomiony.\n"
-                f"Zapisano {len(current_ids)} aktualnych ogłoszeń jako punkt startowy.\n"
-                f"Od teraz będę wysyłać tylko nowe oferty z OTOMOTO i OLX."
+                "✅ Monitoring uruchomiony.\n"
+                f"Zapisano {len(current_ids)} aktualnych pasujących ogłoszeń jako punkt startowy.\n"
+                "Źródła: OTOMOTO + OLX.\n"
+                "Od teraz wysyłam tylko nowe oferty spełniające filtry."
             )
         return
 
     new_items = [item for item in items if item["id"] not in seen]
-
     for item in new_items[:20]:
         telegram_send(make_message(item))
         seen.add(item["id"])
         time.sleep(0.8)
-
     save_seen(seen)
     print(f"Sent {min(len(new_items), 20)} new listings")
 
