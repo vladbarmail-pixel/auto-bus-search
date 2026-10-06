@@ -427,4 +427,122 @@ def collect_autoplac():
 
 
 def collect_gratka():
+    card_items, card_ok = collect_gratka_cards()
+    if card_items:
+        return card_items, card_ok
     return collect_source("GRATKA", GRATKA_SEARCH_URLS, extract_gratka_urls)
+
+
+def parse_gratka_cards(raw: str):
+    soup = BeautifulSoup(raw, "html.parser")
+    items = []
+    seen = set()
+    for a in soup.find_all("a", href=True):
+        href = a.get("href") or ""
+        if not re.search(r"/ob/\d+", href):
+            continue
+        url = urljoin("https://motogratka.pl", href).split("?")[0]
+        if url in seen:
+            continue
+
+        node = a
+        card = None
+        for _ in range(7):
+            node = getattr(node, "parent", None)
+            if node is None:
+                break
+            txt = clean_text(node.get_text(" ", strip=True))
+            low = txt.lower()
+            if (
+                len(txt) >= 40
+                and ("transit custom" in low or "tourneo custom" in low)
+                and ("zł" in low or "pln" in low)
+            ):
+                card = node
+                break
+        if card is None:
+            continue
+
+        text = clean_text(card.get_text(" ", strip=True))
+        lower = text.lower()
+        title = clean_text(a.get_text(" ", strip=True))
+        if not title or len(title) < 8:
+            h = card.find(["h2", "h3", "h4"])
+            if h:
+                title = clean_text(h.get_text(" ", strip=True))
+        if not title:
+            title = text[:160]
+
+        price = rx_int(text, [r"(\d[\d\s\xa0]{2,})\s*(?:zł|PLN)"])
+        year = rx_int(text, [r"\b(20\d{2}|19\d{2})\b"])
+        mileage = rx_int(text, [r"([\d\s\xa0.]{3,})\s*km"])
+        seats = detect_seats(text)
+        power = rx_int(text, [r"\b(\d{2,3})\s*KM\b"])
+        engine = None
+        cc = rx_int(text, [r"\b([12][\d\s]{3})\s*cm"])
+        if cc:
+            engine = f"{cc} cm³"
+
+        location = None
+        m = re.search(
+            r"([A-ZĄĆĘŁŃÓŚŹŻ][\wąćęłńóśźż .-]{2,45})\s*\((Pomorskie|Warmińsko-Mazurskie|Kujawsko-Pomorskie|Zachodniopomorskie|Wielkopolskie|Mazowieckie)\)",
+            text,
+            flags=re.I,
+        )
+        if m:
+            location = f"{clean_text(m.group(1))}, {m.group(2)}"
+
+        image_url = None
+        img = card.find("img")
+        if img:
+            image_url = img.get("src") or img.get("data-src")
+            if not image_url and img.get("srcset"):
+                image_url = img.get("srcset").split(",")[0].strip().split(" ")[0]
+
+        m = re.search(r"/ob/(\d+)", url)
+        item_key = m.group(1) if m else hashlib.sha1(url.encode()).hexdigest()[:16]
+        item = {
+            "id": f"gratka:{item_key}",
+            "source": "GRATKA",
+            "url": url,
+            "title": title,
+            "price": price,
+            "year": year,
+            "mileage": mileage,
+            "seats": seats,
+            "power": power,
+            "engine": engine,
+            "location": location,
+            "text_lower": lower,
+            "fuel_lower": lower,
+            "condition_lower": lower,
+            "distance_km": None,
+            "published_at": None,
+            "image_url": image_url,
+        }
+        ok, reasons = matches(item)
+        if ok:
+            seen.add(url)
+            items.append(item)
+        else:
+            print(f"[GRATKA card skip] {url} -> {', '.join(reasons)}")
+    return items
+
+
+def collect_gratka_cards():
+    all_items = []
+    successful = 0
+    seen_ids = set()
+    for search_url in GRATKA_SEARCH_URLS:
+        try:
+            raw = fetch(search_url)
+            successful += 1
+            items = parse_gratka_cards(raw)
+            print(f"[GRATKA cards] {search_url} -> {len(items)} matching")
+            for item in items:
+                if item["id"] not in seen_ids:
+                    seen_ids.add(item["id"])
+                    all_items.append(item)
+        except Exception as exc:
+            print(f"[GRATKA cards] search failed {search_url}: {exc}")
+    return all_items, successful
