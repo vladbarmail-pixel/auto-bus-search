@@ -88,6 +88,33 @@ def fetch(url: str, timeout: int = 25, headers=None) -> str:
     raise RuntimeError(str(last_error))
 
 
+def fetch_with_browser(url: str) -> str:
+    from playwright.sync_api import sync_playwright
+
+    print("[OLX browser] launching Chromium")
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            locale="pl-PL",
+            user_agent=HEADERS["User-Agent"],
+            extra_http_headers={
+                "Accept-Language": "pl-PL,pl;q=0.9,en;q=0.7",
+                "Referer": "https://www.olx.pl/",
+            },
+        )
+        page = context.new_page()
+        try:
+            response = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(2500)
+            pre = page.locator("body > pre")
+            body = pre.inner_text() if pre.count() else page.locator("body").inner_text()
+            print(f"[OLX browser] HTTP {response.status if response else 'unknown'}, chars={len(body)}")
+            return body
+        finally:
+            context.close()
+            browser.close()
+
+
 def normalize_html(raw: str) -> str:
     raw = html_lib.unescape(raw)
     raw = raw.replace("\\/", "/")
@@ -383,13 +410,17 @@ def collect_olx() -> tuple[list[dict], int]:
         url = "https://www.olx.pl/api/v1/offers/?" + urlencode(params)
         print(f"[OLX API] loading: {query}")
         try:
-            raw = fetch(url, headers=API_HEADERS)
+            try:
+                raw = fetch(url, headers=API_HEADERS)
+            except Exception as direct_exc:
+                print(f"[OLX API] direct blocked: {direct_exc}; trying Chromium")
+                raw = fetch_with_browser(url)
             data = json.loads(raw)
             offers = data.get("data") or []
             successful_searches += 1
             print(f"[OLX API] {query}: {len(offers)} raw offers")
         except Exception as exc:
-            print(f"[OLX API] {query} failed: {exc}", file=sys.stderr)
+            print(f"[OLX API] {query} failed after Chromium fallback: {exc}", file=sys.stderr)
             continue
 
         for offer in offers:
