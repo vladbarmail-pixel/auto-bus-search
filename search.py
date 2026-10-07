@@ -23,7 +23,7 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 MAX_PRICE = 45000
 MIN_YEAR = 2014
-MAX_DISTANCE_KM = 300
+MAX_DISTANCE_KM = 415
 GDANSK_LAT = 54.3520
 GDANSK_LON = 18.6466
 
@@ -31,7 +31,7 @@ OTOMOTO_URLS = [
     (
         "OTOMOTO",
         "https://www.otomoto.pl/osobowe/ford/transit-custom/od-2014/gdansk"
-        "?search%5Bdist%5D=300"
+        "?search%5Bdist%5D=415"
         "&search%5Bfilter_enum_damaged%5D=0"
         "&search%5Bfilter_enum_fuel_type%5D=diesel"
         "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
@@ -42,7 +42,7 @@ OTOMOTO_URLS = [
     (
         "OTOMOTO",
         "https://www.otomoto.pl/osobowe/ford/tourneo-custom/od-2014/gdansk"
-        "?search%5Bdist%5D=300"
+        "?search%5Bdist%5D=415"
         "&search%5Bfilter_enum_damaged%5D=0"
         "&search%5Bfilter_enum_fuel_type%5D=diesel"
         "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
@@ -400,7 +400,7 @@ def matches(item: dict) -> tuple[bool, list[str]]:
 
     distance = item.get("distance_km")
     if distance is not None and distance > MAX_DISTANCE_KM:
-        reasons.append(">300 km from Gdańsk")
+        reasons.append(">415 km from Gdańsk")
     return (not reasons), reasons
 
 
