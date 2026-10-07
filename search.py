@@ -24,6 +24,7 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 MAX_PRICE = 45000
 MIN_YEAR = 2014
 MAX_DISTANCE_KM = 415
+MAX_LISTING_AGE_HOURS = 48
 GDANSK_LAT = 54.3520
 GDANSK_LON = 18.6466
 
@@ -474,6 +475,29 @@ def fmt_num(value):
     return f"{value:,}".replace(",", " ") if isinstance(value, int) else "brak danych"
 
 
+def parse_published_datetime(value):
+    if not value:
+        return None
+    try:
+        from datetime import datetime, timezone
+        s = str(value).strip().replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def listing_is_fresh(item: dict) -> bool:
+    from datetime import datetime, timedelta, timezone
+    dt = parse_published_datetime(item.get("published_at"))
+    if dt is None:
+        # Keep sources that do not expose a parseable publication timestamp.
+        return True
+    return datetime.now(timezone.utc) - dt <= timedelta(hours=MAX_LISTING_AGE_HOURS)
+
+
 def format_published(value) -> str | None:
     if not value:
         return None
@@ -606,12 +630,29 @@ def main():
         return
 
     new_items = [item for item in items if item["id"] not in seen]
-    for item in new_items[:20]:
+    sent_count = 0
+    stale_count = 0
+
+    for item in new_items:
+        if not listing_is_fresh(item):
+            print(
+                f"[freshness skip] {item.get('source')} {item.get('url')} "
+                f"published={item.get('published_at')} (> {MAX_LISTING_AGE_HOURS}h)"
+            )
+            seen.add(item["id"])
+            stale_count += 1
+            continue
+
+        if sent_count >= 20:
+            continue
+
         telegram_send(make_message(item), item)
         seen.add(item["id"])
+        sent_count += 1
         time.sleep(0.8)
+
     save_seen(seen)
-    print(f"Sent {min(len(new_items), 20)} new listings")
+    print(f"Sent {sent_count} new listings; skipped {stale_count} stale listings")
 
 
 if __name__ == "__main__":
