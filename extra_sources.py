@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 MAX_PRICE = 45000
 MIN_YEAR = 2014
-MAX_DISTANCE_KM = 300
+MAX_DISTANCE_KM = 415
 GDANSK_LAT = 54.3520
 GDANSK_LON = 18.6466
 
@@ -359,7 +359,7 @@ def matches(item: dict):
 
     d = item.get("distance_km")
     if d is not None and d > MAX_DISTANCE_KM:
-        reasons.append(">300 km from Gdańsk")
+        reasons.append(">415 km from Gdańsk")
     elif d is None:
         loc = (item.get("location") or "").lower()
         # Conservative fallback when the listing does not publish coordinates.
