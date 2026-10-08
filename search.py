@@ -152,6 +152,133 @@ def first_json_ld(soup: BeautifulSoup):
             yield data
 
 
+def walk_json_objects(obj):
+    if isinstance(obj, dict):
+        yield obj
+        for value in obj.values():
+            yield from walk_json_objects(value)
+    elif isinstance(obj, list):
+        for value in obj:
+            yield from walk_json_objects(value)
+
+
+def page_json_objects(soup: BeautifulSoup):
+    for tag in soup.find_all("script"):
+        raw = tag.get_text(strip=True)
+        if not raw:
+            continue
+        script_type = (tag.get("type") or "").lower()
+        script_id = tag.get("id") or ""
+        if (
+            script_type in ("application/ld+json", "application/json")
+            or script_id == "__NEXT_DATA__"
+            or raw[:1] in ("{", "[")
+        ):
+            try:
+                data = json.loads(raw)
+            except Exception:
+                continue
+            yield from walk_json_objects(data)
+
+
+def otomoto_metadata(soup: BeautifulSoup, raw: str):
+    published = None
+    location = None
+    lat = None
+    lon = None
+
+    date_keys = (
+        "datePosted", "datePublished", "uploadDate", "dateCreated",
+        "createdAt", "created_at", "publishedAt", "published_at",
+        "publicationDate", "createdTime", "created_time",
+    )
+
+    for obj in page_json_objects(soup):
+        if published is None:
+            for key in date_keys:
+                value = obj.get(key)
+                if isinstance(value, str) and re.search(r"20\d{2}-\d{2}-\d{2}", value):
+                    published = value
+                    break
+
+        if lat is None or lon is None:
+            pairs = [
+                (obj.get("latitude"), obj.get("longitude")),
+                (obj.get("lat"), obj.get("lon")),
+                (obj.get("lat"), obj.get("lng")),
+            ]
+            for a, b in pairs:
+                try:
+                    fa, fb = float(a), float(b)
+                except Exception:
+                    continue
+                if 48.0 <= fa <= 56.0 and 13.0 <= fb <= 25.0:
+                    lat, lon = fa, fb
+                    break
+
+        if location is None:
+            locality = obj.get("addressLocality")
+            region = obj.get("addressRegion")
+            if isinstance(locality, str) and locality.strip():
+                location = ", ".join(x for x in [locality.strip(), region.strip() if isinstance(region, str) else None] if x)
+            elif isinstance(obj.get("city"), dict):
+                city_name = obj["city"].get("name")
+                region_obj = obj.get("region")
+                region_name = region_obj.get("name") if isinstance(region_obj, dict) else None
+                if isinstance(city_name, str) and city_name.strip():
+                    location = ", ".join(x for x in [city_name.strip(), region_name.strip() if isinstance(region_name, str) else None] if x)
+            elif isinstance(obj.get("location"), dict):
+                loc = obj["location"]
+                city = loc.get("city")
+                region = loc.get("region")
+                city_name = city.get("name") if isinstance(city, dict) else city if isinstance(city, str) else None
+                region_name = region.get("name") if isinstance(region, dict) else region if isinstance(region, str) else None
+                if city_name:
+                    location = ", ".join(x for x in [str(city_name).strip(), str(region_name).strip() if region_name else None] if x)
+
+    normalized = normalize_html(raw)
+
+    if published is None:
+        for key in date_keys:
+            m = re.search(
+                rf'["\']{re.escape(key)}["\']\s*:\s*["\']([^"\']+)["\']',
+                normalized,
+                flags=re.I,
+            )
+            if m and re.search(r"20\d{2}-\d{2}-\d{2}", m.group(1)):
+                published = m.group(1)
+                break
+
+    if lat is None or lon is None:
+        coord_patterns = [
+            r'["\']latitude["\']\s*:\s*(-?\d+(?:\.\d+)?).*?["\']longitude["\']\s*:\s*(-?\d+(?:\.\d+)?)',
+            r'["\']lat["\']\s*:\s*(-?\d+(?:\.\d+)?).*?["\'](?:lon|lng)["\']\s*:\s*(-?\d+(?:\.\d+)?)',
+        ]
+        for pat in coord_patterns:
+            m = re.search(pat, normalized, flags=re.I | re.S)
+            if not m:
+                continue
+            try:
+                fa, fb = float(m.group(1)), float(m.group(2))
+            except Exception:
+                continue
+            if 48.0 <= fa <= 56.0 and 13.0 <= fb <= 25.0:
+                lat, lon = fa, fb
+                break
+
+    if location is None:
+        for pat in [
+            r'["\']addressLocality["\']\s*:\s*["\']([^"\']+)["\']',
+            r'["\']city["\']\s*:\s*\{[^{}]{0,300}?["\']name["\']\s*:\s*["\']([^"\']+)["\']',
+        ]:
+            m = re.search(pat, normalized, flags=re.I | re.S)
+            if m:
+                location = clean_text(m.group(1))
+                break
+
+    return published, location, lat, lon
+
+
 def deep_find_price(obj):
     if isinstance(obj, dict):
         for key in ("price", "lowPrice"):
@@ -216,6 +343,10 @@ def parse_otomoto_listing(url: str) -> dict:
                 image_url = img[0] if isinstance(img[0], str) else None
             elif isinstance(img, dict):
                 image_url = img.get("url") or img.get("contentUrl")
+
+    meta_published, meta_location, meta_lat, meta_lon = otomoto_metadata(soup, raw)
+    if not published_at:
+        published_at = meta_published
     if not price:
         price = rx_int(page_text, [r"(\d[\d\s\xa0]{2,})\s*PLN", r"Cena(?:\s+brutto)?\s*[:\-]?\s*(\d[\d\s\xa0]{2,})"])
 
@@ -229,12 +360,14 @@ def parse_otomoto_listing(url: str) -> dict:
     if m:
         engine = re.sub(r"\s+", "", m.group(1)) + " cm³"
 
-    location = None
+    location = meta_location
     desc = soup.find("meta", attrs={"name": "description"})
-    if desc and desc.get("content"):
-        dm = re.search(r"(Gdańsk|Gdynia|Sopot|Szczecin|Elbląg|Olsztyn|Bydgoszcz|Toruń|Koszalin|Poznań|Piła|Grudziądz|Iława)[^,.;]{0,60}", desc["content"], flags=re.I)
+    if not location and desc and desc.get("content"):
+        dm = re.search(r"(Gdańsk|Gdynia|Sopot|Szczecin|Elbląg|Olsztyn|Bydgoszcz|Toruń|Koszalin|Poznań|Piła|Grudziądz|Iława|Warszawa|Łódź|Płock|Konin|Gorzów Wielkopolski)[^,.;]{0,60}", desc["content"], flags=re.I)
         if dm:
             location = clean_text(dm.group(0))
+
+    distance = haversine_km(GDANSK_LAT, GDANSK_LON, meta_lat, meta_lon) if meta_lat is not None and meta_lon is not None else None
 
     m = re.search(r"-ID([A-Za-z0-9]+)\.html", url)
     item_id = "otomoto:" + (m.group(1) if m else hashlib.sha1(url.encode()).hexdigest()[:16])
@@ -243,7 +376,7 @@ def parse_otomoto_listing(url: str) -> dict:
         "id": item_id, "source": "OTOMOTO", "url": url, "title": title,
         "price": price, "year": year, "mileage": mileage, "seats": seats,
         "power": power, "engine": engine, "location": location,
-        "text_lower": lower, "distance_km": None,
+        "text_lower": lower, "distance_km": distance,
         "published_at": published_at, "image_url": image_url,
     }
 
@@ -421,6 +554,12 @@ def collect_otomoto() -> tuple[list[dict], int]:
         for url in urls[:40]:
             try:
                 item = parse_otomoto_listing(url)
+                print(
+                    f"[OTOMOTO parsed] {item.get('id')} "
+                    f"published={item.get('published_at')} "
+                    f"location={item.get('location')} "
+                    f"distance={item.get('distance_km')}"
+                )
                 ok, reasons = matches(item)
                 if ok:
                     items.append(item)
