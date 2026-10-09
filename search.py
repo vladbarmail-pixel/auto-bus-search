@@ -23,6 +23,7 @@ TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 MAX_PRICE = 45000
 MIN_YEAR = 2014
+CADDY_MIN_YEAR = 2015
 MAX_DISTANCE_KM = 415
 MAX_LISTING_AGE_HOURS = 48
 GDANSK_LAT = 54.3520
@@ -51,9 +52,21 @@ OTOMOTO_URLS = [
         "&search%5Bfilter_float_price%3Ato%5D=45000"
         "&search%5Border%5D=created_at_first%3Adesc",
     ),
+    (
+        "OTOMOTO",
+        "https://www.otomoto.pl/osobowe/volkswagen/caddy/od-2015/gdansk"
+        "?search%5Bdist%5D=415"
+        "&search%5Bfilter_enum_damaged%5D=0"
+        "&search%5Bfilter_enum_fuel_type%5D=diesel"
+        "&search%5Bfilter_float_nr_seats%5D%5B0%5D=5"
+        "&search%5Bfilter_float_nr_seats%5D%5B1%5D=6"
+        "&search%5Bfilter_float_nr_seats%5D%5B2%5D=7"
+        "&search%5Bfilter_float_price%3Ato%5D=45000"
+        "&search%5Border%5D=created_at_first%3Adesc",
+    ),
 ]
 
-OLX_QUERIES = ["Ford Transit Custom", "Ford Tourneo Custom"]
+OLX_QUERIES = ["Ford Transit Custom", "Ford Tourneo Custom", "Volkswagen Caddy 2.0 TDI", "VW Caddy 2.0 TDI"]
 
 HEADERS = {
     "User-Agent": (
@@ -426,9 +439,9 @@ def haversine_km(lat1, lon1, lat2, lon2):
 
 def detect_seats(text: str):
     patterns = [
-        r"\b([89])\s*(?:os\.|osob(?:owy|owe|owych)?|miejsc(?:a)?|miejscowy|miejscowe)\b",
-        r"\b([89])[-\s]?osob",
-        r"\b([89])[-\s]?miejsc",
+        r"\b([5-9])\s*(?:os\.|osób|osob(?:owy|owa|owe|owych)?|miejsc(?:a)?|miejscowy|miejscowe|foteli)\b",
+        r"\b([5-9])[-\s]?(?:cio[-\s]?)?osob",
+        r"\b([5-9])[-\s]?miejsc",
     ]
     for pat in patterns:
         m = re.search(pat, text, flags=re.I)
@@ -504,19 +517,40 @@ def matches(item: dict) -> tuple[bool, list[str]]:
     reasons = []
     title_lower = (item.get("title") or "").lower()
     text = item.get("text_lower") or ""
+    model_text = f"{title_lower} {text}"
 
-    if "transit custom" not in title_lower and "tourneo custom" not in title_lower:
-        if "transit custom" not in text and "tourneo custom" not in text:
-            reasons.append("wrong model")
+    is_ford_custom = "transit custom" in model_text or "tourneo custom" in model_text
+    is_caddy = "caddy" in model_text
+
+    if not is_ford_custom and not is_caddy:
+        reasons.append("wrong model")
+
     if item.get("price") is None or item["price"] > MAX_PRICE:
         reasons.append("price missing/>45000")
-    if item.get("year") is None or item["year"] < MIN_YEAR:
-        reasons.append("year missing/<2014")
-    if item.get("seats") not in (8, 9):
-        reasons.append("8/9 seats not confirmed")
+
+    if is_caddy:
+        if item.get("year") is None or item["year"] < CADDY_MIN_YEAR:
+            reasons.append("Caddy year missing/<2015")
+        if item.get("seats") not in (5, 6, 7):
+            reasons.append("Caddy 5-7 seats not confirmed")
+
+        engine_text = f"{item.get('engine') or ''} {model_text}".lower()
+        engine_cc_match = re.search(r"\b(\d{4})\s*cm", engine_text)
+        engine_cc = int(engine_cc_match.group(1)) if engine_cc_match else None
+        is_two_litre = (
+            (engine_cc is not None and 1900 <= engine_cc <= 2100)
+            or re.search(r"(?<!\d)2[\.,]0(?!\d)", engine_text) is not None
+        )
+        if not is_two_litre:
+            reasons.append("Caddy 2.0 engine not confirmed")
+    else:
+        if item.get("year") is None or item["year"] < MIN_YEAR:
+            reasons.append("year missing/<2014")
+        if item.get("seats") not in (8, 9):
+            reasons.append("8/9 seats not confirmed")
 
     fuel = item.get("fuel_lower") or text
-    if "diesel" not in fuel and "olej napędowy" not in fuel:
+    if "diesel" not in fuel and "olej napędowy" not in fuel and "tdi" not in fuel:
         reasons.append("diesel not confirmed")
 
     # OLX Poland exposes the technical condition explicitly:
@@ -663,7 +697,7 @@ def make_message(item: dict) -> str:
     }.get(item["source"], "🚐")
     lines = [
         f"{source_icon} {item['source']} — NOWE OGŁOSZENIE", "",
-        f"🚐 {item['title'] or 'Ford Custom'}",
+        f"🚐 {item['title'] or 'Samochód'}",
         f"💰 {fmt_num(item['price'])} zł" if item["price"] else "💰 cena: brak danych",
         f"📅 Rok: {item['year'] or 'brak danych'}",
         f"🛣 Przebieg: {fmt_num(item['mileage'])} km" if item["mileage"] else "🛣 Przebieg: brak danych",
