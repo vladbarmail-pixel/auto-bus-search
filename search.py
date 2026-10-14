@@ -38,8 +38,6 @@ OTOMOTO_URLS = [
     ("OTOMOTO", "https://www.otomoto.pl/osobowe/citroen/jumpy/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
     ("OTOMOTO", "https://www.otomoto.pl/osobowe/peugeot/expert/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
     ("OTOMOTO", "https://www.otomoto.pl/osobowe/fiat/scudo/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
-    ("OTOMOTO", "https://www.otomoto.pl/osobowe/volkswagen/transporter/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
-    ("OTOMOTO", "https://www.otomoto.pl/osobowe/mercedes-benz/vito/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
 ]
 
 OLX_QUERIES = [
@@ -51,9 +49,6 @@ OLX_QUERIES = [
     "Citroen Jumpy 9 osobowy",
     "Peugeot Expert 9 osobowy",
     "Fiat Scudo 9 osobowy",
-    "VW T5 9 osobowy",
-    "Volkswagen Transporter 9 osobowy",
-    "Mercedes Vito 9 osobowy",
 ]
 
 
@@ -515,8 +510,6 @@ def model_name(item: dict) -> str | None:
         ("Citroen Jumpy", ("citroen jumpy", "citroën jumpy", "jumpy")),
         ("Peugeot Expert", ("peugeot expert",)),
         ("Fiat Scudo", ("fiat scudo",)),
-        ("VW T5 / Transporter", ("volkswagen transporter", "vw transporter", "transporter t5", "vw t5", "volkswagen t5")),
-        ("Mercedes Vito", ("mercedes vito", "mercedes-benz vito", "vito")),
     ]
     for name, needles in checks:
         if any(n in text for n in needles):
