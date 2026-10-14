@@ -727,6 +727,24 @@ def make_message(item: dict) -> str:
     return "\n".join(lines)[:3900]
 
 
+def telegram_request(url: str, payload: dict, timeout: int):
+    for attempt in range(6):
+        r = requests.post(url, json=payload, timeout=timeout)
+        if r.ok:
+            return r
+        if r.status_code == 429:
+            try:
+                retry_after = int((r.json().get("parameters") or {}).get("retry_after") or 5)
+            except Exception:
+                retry_after = 5
+            wait_for = retry_after + 2
+            print(f"[Telegram] rate limited; waiting {wait_for}s before retry")
+            time.sleep(wait_for)
+            continue
+        return r
+    return r
+
+
 def telegram_send(text: str, item: dict | None = None):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
@@ -734,9 +752,9 @@ def telegram_send(text: str, item: dict | None = None):
     image_url = item.get("image_url") if item else None
     if image_url:
         photo_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
-        r = requests.post(
+        r = telegram_request(
             photo_url,
-            json={"chat_id": TELEGRAM_CHAT_ID, "photo": image_url, "caption": text[:1024]},
+            {"chat_id": TELEGRAM_CHAT_ID, "photo": image_url, "caption": text[:1024]},
             timeout=25,
         )
         if r.ok:
@@ -744,7 +762,11 @@ def telegram_send(text: str, item: dict | None = None):
         print(f"[Telegram] sendPhoto failed ({r.status_code}); falling back to text")
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": text, "disable_web_page_preview": False}, timeout=20)
+    r = telegram_request(
+        url,
+        {"chat_id": TELEGRAM_CHAT_ID, "text": text, "disable_web_page_preview": False},
+        timeout=20,
+    )
     if not r.ok:
         raise RuntimeError(f"Telegram error {r.status_code}: {r.text[:500]}")
 
@@ -844,7 +866,7 @@ def main():
         telegram_send(make_message(item), item)
         seen.add(item["id"])
         sent_count += 1
-        time.sleep(0.8)
+        time.sleep(3.2 if profile_changed else 1.0)
 
     if profile_changed:
         seen = {x for x in seen if not x.startswith("profile:")}
