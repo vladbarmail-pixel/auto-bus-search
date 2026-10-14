@@ -22,51 +22,40 @@ FIRST_RUN_SEND = os.getenv("FIRST_RUN_SEND", "false").lower() == "true"
 TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
 
 MAX_PRICE = 45000
-MIN_YEAR = 2014
-CADDY_MIN_YEAR = 2015
-MAX_DISTANCE_KM = 415
+MIN_YEAR = 2010
+MAX_DISTANCE_KM = 150
 MAX_LISTING_AGE_HOURS = 48
+PROFILE_MARKER = "profile:150km-vans-no-caddy-v1"
 GDANSK_LAT = 54.3520
 GDANSK_LON = 18.6466
 
 OTOMOTO_URLS = [
-    (
-        "OTOMOTO",
-        "https://www.otomoto.pl/osobowe/ford/transit-custom/od-2014/gdansk"
-        "?search%5Bdist%5D=415"
-        "&search%5Bfilter_enum_damaged%5D=0"
-        "&search%5Bfilter_enum_fuel_type%5D=diesel"
-        "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
-        "&search%5Bfilter_float_nr_seats%5D%5B1%5D=9"
-        "&search%5Bfilter_float_price%3Ato%5D=45000"
-        "&search%5Border%5D=created_at_first%3Adesc",
-    ),
-    (
-        "OTOMOTO",
-        "https://www.otomoto.pl/osobowe/ford/tourneo-custom/od-2014/gdansk"
-        "?search%5Bdist%5D=415"
-        "&search%5Bfilter_enum_damaged%5D=0"
-        "&search%5Bfilter_enum_fuel_type%5D=diesel"
-        "&search%5Bfilter_float_nr_seats%5D%5B0%5D=8"
-        "&search%5Bfilter_float_nr_seats%5D%5B1%5D=9"
-        "&search%5Bfilter_float_price%3Ato%5D=45000"
-        "&search%5Border%5D=created_at_first%3Adesc",
-    ),
-    (
-        "OTOMOTO",
-        "https://www.otomoto.pl/osobowe/volkswagen/caddy/od-2015/gdansk"
-        "?search%5Bdist%5D=415"
-        "&search%5Bfilter_enum_damaged%5D=0"
-        "&search%5Bfilter_enum_fuel_type%5D=diesel"
-        "&search%5Bfilter_float_nr_seats%5D%5B0%5D=5"
-        "&search%5Bfilter_float_nr_seats%5D%5B1%5D=6"
-        "&search%5Bfilter_float_nr_seats%5D%5B2%5D=7"
-        "&search%5Bfilter_float_price%3Ato%5D=45000"
-        "&search%5Border%5D=created_at_first%3Adesc",
-    ),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/ford/transit-custom/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/ford/tourneo-custom/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/renault/trafic/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/opel/vivaro/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/nissan/primastar/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/citroen/jumpy/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/peugeot/expert/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/fiat/scudo/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/volkswagen/transporter/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/mercedes-benz/vito/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
 ]
 
-OLX_QUERIES = ["Ford Transit Custom", "Ford Tourneo Custom", "Volkswagen Caddy 2.0 TDI", "VW Caddy 2.0 TDI"]
+OLX_QUERIES = [
+    "Ford Transit Custom 9 osobowy",
+    "Ford Tourneo Custom 9 osobowy",
+    "Renault Trafic 9 osobowy",
+    "Opel Vivaro 9 osobowy",
+    "Nissan Primastar 9 osobowy",
+    "Citroen Jumpy 9 osobowy",
+    "Peugeot Expert 9 osobowy",
+    "Fiat Scudo 9 osobowy",
+    "VW T5 9 osobowy",
+    "Volkswagen Transporter 9 osobowy",
+    "Mercedes Vito 9 osobowy",
+]
+
 
 HEADERS = {
     "User-Agent": (
@@ -98,6 +87,8 @@ def fetch(url: str, timeout: int = 25, headers=None) -> str:
             if r.status_code == 200 and r.text:
                 return r.text
             last_error = RuntimeError(f"HTTP {r.status_code} for {url}")
+            if r.status_code in (401, 403):
+                break
         except requests.RequestException as exc:
             last_error = exc
         time.sleep(2 + attempt * 2)
@@ -439,9 +430,9 @@ def haversine_km(lat1, lon1, lat2, lon2):
 
 def detect_seats(text: str):
     patterns = [
-        r"\b([5-9])\s*(?:os\.|osób|osob(?:owy|owa|owe|owych)?|miejsc(?:a)?|miejscowy|miejscowe|foteli)\b",
-        r"\b([5-9])[-\s]?(?:cio[-\s]?)?osob",
-        r"\b([5-9])[-\s]?miejsc",
+        r"\b([89])\s*(?:os\.|osób|osob(?:owy|owa|owe|owych)?|miejsc(?:a)?|miejscowy|miejscowe|foteli)\b",
+        r"\b([89])[-\s]?(?:cio[-\s]?)?osob",
+        r"\b([89])[-\s]?miejsc",
     ]
     for pat in patterns:
         m = re.search(pat, text, flags=re.I)
@@ -513,50 +504,60 @@ def parse_olx_offer(offer: dict) -> dict:
     }
 
 
+def model_name(item: dict) -> str | None:
+    text = f"{item.get('title') or ''} {item.get('text_lower') or ''}".lower()
+    checks = [
+        ("Ford Transit Custom", ("transit custom",)),
+        ("Ford Tourneo Custom", ("tourneo custom",)),
+        ("Renault Trafic", ("renault trafic", "trafic")),
+        ("Opel Vivaro", ("opel vivaro", "vivaro")),
+        ("Nissan Primastar", ("nissan primastar", "primastar")),
+        ("Citroen Jumpy", ("citroen jumpy", "citroën jumpy", "jumpy")),
+        ("Peugeot Expert", ("peugeot expert",)),
+        ("Fiat Scudo", ("fiat scudo",)),
+        ("VW T5 / Transporter", ("volkswagen transporter", "vw transporter", "transporter t5", "vw t5", "volkswagen t5")),
+        ("Mercedes Vito", ("mercedes vito", "mercedes-benz vito", "vito")),
+    ]
+    for name, needles in checks:
+        if any(n in text for n in needles):
+            return name
+    return None
+
+
+def model_priority(item: dict) -> int:
+    name = model_name(item)
+    if name in ("Ford Transit Custom", "Ford Tourneo Custom"):
+        return 0
+    if name == "Renault Trafic":
+        return 1
+    return 2
+
+
 def matches(item: dict) -> tuple[bool, list[str]]:
     reasons = []
     title_lower = (item.get("title") or "").lower()
     text = item.get("text_lower") or ""
-    model_text = f"{title_lower} {text}"
 
-    is_ford_custom = "transit custom" in model_text or "tourneo custom" in model_text
-    is_caddy = "caddy" in model_text
-
-    if not is_ford_custom and not is_caddy:
+    if model_name(item) is None:
         reasons.append("wrong model")
 
     if item.get("price") is None or item["price"] > MAX_PRICE:
         reasons.append("price missing/>45000")
 
-    if is_caddy:
-        if item.get("year") is None or item["year"] < CADDY_MIN_YEAR:
-            reasons.append("Caddy year missing/<2015")
-        if item.get("seats") not in (5, 6, 7):
-            reasons.append("Caddy 5-7 seats not confirmed")
+    if item.get("year") is None or item["year"] < MIN_YEAR:
+        reasons.append("year missing/<2010")
 
-        engine_text = f"{item.get('engine') or ''} {model_text}".lower()
-        engine_cc_match = re.search(r"\b(\d{4})\s*cm", engine_text)
-        engine_cc = int(engine_cc_match.group(1)) if engine_cc_match else None
-        is_two_litre = (
-            (engine_cc is not None and 1900 <= engine_cc <= 2100)
-            or re.search(r"(?<!\d)2[\.,]0(?!\d)", engine_text) is not None
-        )
-        if not is_two_litre:
-            reasons.append("Caddy 2.0 engine not confirmed")
-    else:
-        if item.get("year") is None or item["year"] < MIN_YEAR:
-            reasons.append("year missing/<2014")
-        if item.get("seats") not in (8, 9):
-            reasons.append("8/9 seats not confirmed")
+    if item.get("seats") not in (8, 9):
+        reasons.append("8/9 seats not confirmed")
 
     fuel = item.get("fuel_lower") or text
-    if "diesel" not in fuel and "olej napędowy" not in fuel and "tdi" not in fuel:
+    diesel_terms = (
+        "diesel", "olej napędowy", "tdci", "ecoblue", "dci", "cdti",
+        "hdi", "multijet", "tdi", "cdi", "bluehdi", "bluedci",
+    )
+    if not any(term in fuel for term in diesel_terms):
         reasons.append("diesel not confirmed")
 
-    # OLX Poland exposes the technical condition explicitly:
-    # uzywane/nowe = OK, uszkodzone = damaged. Do not scan the whole
-    # description for the word "uszkodzony", because OLX boilerplate can
-    # mention that word even for an undamaged vehicle.
     condition = item.get("condition_lower") or ""
     title_damage_terms = (
         "uszkodzony", "uszkodzona", "uszkodzone",
@@ -568,7 +569,10 @@ def matches(item: dict) -> tuple[bool, list[str]]:
 
     distance = item.get("distance_km")
     if distance is not None and distance > MAX_DISTANCE_KM:
-        reasons.append(">415 km from Gdańsk")
+        reasons.append(">150 km from Gdańsk")
+    elif item.get("source") == "OLX" and distance is None:
+        reasons.append("OLX distance unavailable")
+
     return (not reasons), reasons
 
 
@@ -609,38 +613,44 @@ def collect_olx() -> tuple[list[dict], int]:
     items = []
     successful_searches = 0
     for query in OLX_QUERIES:
-        params = {
-            "category_id": 84, "limit": 50, "offset": 0,
-            "sort_by": "created_at:desc", "query": query,
-            "filter_float_year:from": MIN_YEAR,
-            "filter_float_price:to": MAX_PRICE,
-        }
-        url = "https://www.olx.pl/api/v1/offers/?" + urlencode(params)
-        print(f"[OLX API] loading: {query}")
-        try:
+        query_ok = False
+        for offset in (0, 50):
+            params = {
+                "category_id": 84, "limit": 50, "offset": offset,
+                "sort_by": "created_at:desc", "query": query,
+                "filter_float_year:from": MIN_YEAR,
+                "filter_float_price:to": MAX_PRICE,
+            }
+            url = "https://www.olx.pl/api/v1/offers/?" + urlencode(params)
+            print(f"[OLX API] loading: {query}, offset={offset}")
             try:
-                raw = fetch(url, headers=API_HEADERS)
-            except Exception as direct_exc:
-                print(f"[OLX API] direct blocked: {direct_exc}; trying Chromium")
-                raw = fetch_with_browser(url)
-            data = json.loads(raw)
-            offers = data.get("data") or []
-            successful_searches += 1
-            print(f"[OLX API] {query}: {len(offers)} raw offers")
-        except Exception as exc:
-            print(f"[OLX API] {query} failed after Chromium fallback: {exc}", file=sys.stderr)
-            continue
-
-        for offer in offers:
-            try:
-                item = parse_olx_offer(offer)
-                ok, reasons = matches(item)
-                if ok:
-                    items.append(item)
-                else:
-                    print(f"[OLX skip] {item.get('url')} -> {', '.join(reasons)}")
+                try:
+                    raw = fetch(url, headers=API_HEADERS)
+                except Exception as direct_exc:
+                    print(f"[OLX API] direct blocked: {direct_exc}; trying Chromium")
+                    raw = fetch_with_browser(url)
+                data = json.loads(raw)
+                offers = data.get("data") or []
+                query_ok = True
+                print(f"[OLX API] {query}, offset={offset}: {len(offers)} raw offers")
             except Exception as exc:
-                print(f"[OLX] offer parse failed: {exc}", file=sys.stderr)
+                print(f"[OLX API] {query}, offset={offset} failed after Chromium fallback: {exc}", file=sys.stderr)
+                continue
+
+            for offer in offers:
+                try:
+                    item = parse_olx_offer(offer)
+                    ok, reasons = matches(item)
+                    if ok:
+                        items.append(item)
+                    else:
+                        print(f"[OLX skip] {item.get('url')} -> {', '.join(reasons)}")
+                except Exception as exc:
+                    print(f"[OLX] offer parse failed: {exc}", file=sys.stderr)
+
+        if query_ok:
+            successful_searches += 1
+
     return items, successful_searches
 
 
@@ -781,7 +791,13 @@ def collect() -> list[dict]:
             continue
         fingerprints.add(fp)
         unique[item["id"]] = item
-    return list(unique.values())
+    result = list(unique.values())
+    result.sort(key=lambda item: (
+        model_priority(item),
+        item.get("distance_km") if item.get("distance_km") is not None else 9999,
+        item.get("price") if item.get("price") is not None else 999999,
+    ))
+    return result
 
 
 def main():
@@ -790,7 +806,7 @@ def main():
     current_ids = {item["id"] for item in items}
     print(f"Matching listings: {len(items)}; seen: {len(seen)}")
 
-    if not seen and not FIRST_RUN_SEND:
+    if not seen and not FIRST_RUN_SEND and PROFILE_MARKER in seen:
         seen.update(current_ids)
         save_seen(seen)
         if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
@@ -802,12 +818,18 @@ def main():
             )
         return
 
-    new_items = [item for item in items if item["id"] not in seen]
+    profile_changed = PROFILE_MARKER not in seen
+    if profile_changed:
+        print(f"New search profile detected: {PROFILE_MARKER}. Sending all current matching listings once.")
+        new_items = items
+    else:
+        new_items = [item for item in items if item["id"] not in seen]
+
     sent_count = 0
     stale_count = 0
 
     for item in new_items:
-        if not listing_is_fresh(item):
+        if not profile_changed and not listing_is_fresh(item):
             print(
                 f"[freshness skip] {item.get('source')} {item.get('url')} "
                 f"published={item.get('published_at')} (> {MAX_LISTING_AGE_HOURS}h)"
@@ -816,7 +838,7 @@ def main():
             stale_count += 1
             continue
 
-        if sent_count >= 20:
+        if not profile_changed and sent_count >= 20:
             continue
 
         telegram_send(make_message(item), item)
@@ -824,8 +846,13 @@ def main():
         sent_count += 1
         time.sleep(0.8)
 
+    if profile_changed:
+        seen = {x for x in seen if not x.startswith("profile:")}
+        seen.add(PROFILE_MARKER)
+
     save_seen(seen)
-    print(f"Sent {sent_count} new listings; skipped {stale_count} stale listings")
+    mode = "all current listings" if profile_changed else "new listings"
+    print(f"Sent {sent_count} {mode}; skipped {stale_count} stale listings")
 
 
 if __name__ == "__main__":
