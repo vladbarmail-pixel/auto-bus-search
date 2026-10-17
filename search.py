@@ -26,6 +26,7 @@ MIN_YEAR = 2010
 MAX_DISTANCE_KM = 150
 MAX_LISTING_AGE_HOURS = 48
 PROFILE_MARKER = "profile:150km-vans-no-caddy-v1"
+TALENTO_BOOTSTRAP_MARKER = "bootstrap:fiat-talento-v1"
 GDANSK_LAT = 54.3520
 GDANSK_LON = 18.6466
 
@@ -37,7 +38,7 @@ OTOMOTO_URLS = [
     ("OTOMOTO", "https://www.otomoto.pl/osobowe/nissan/primastar/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
     ("OTOMOTO", "https://www.otomoto.pl/osobowe/citroen/jumpy/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
     ("OTOMOTO", "https://www.otomoto.pl/osobowe/peugeot/expert/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
-    ("OTOMOTO", "https://www.otomoto.pl/osobowe/fiat/scudo/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
+    ("OTOMOTO", "https://www.otomoto.pl/osobowe/fiat/talento/od-2010/gdansk?search%5Bdist%5D=150&search%5Bfilter_enum_damaged%5D=0&search%5Bfilter_enum_fuel_type%5D=diesel&search%5Bfilter_float_nr_seats%5D%5B0%5D=8&search%5Bfilter_float_nr_seats%5D%5B1%5D=9&search%5Bfilter_float_price%3Ato%5D=45000&search%5Border%5D=created_at_first%3Adesc"),
 ]
 
 OLX_QUERIES = [
@@ -48,7 +49,7 @@ OLX_QUERIES = [
     "Nissan Primastar 9 osobowy",
     "Citroen Jumpy 9 osobowy",
     "Peugeot Expert 9 osobowy",
-    "Fiat Scudo 9 osobowy",
+    "Fiat Talento 9 osobowy",
 ]
 
 
@@ -509,7 +510,7 @@ def model_name(item: dict) -> str | None:
         ("Nissan Primastar", ("nissan primastar", "primastar")),
         ("Citroen Jumpy", ("citroen jumpy", "citroën jumpy", "jumpy")),
         ("Peugeot Expert", ("peugeot expert",)),
-        ("Fiat Scudo", ("fiat scudo",)),
+        ("Fiat Talento", ("fiat talento", "talento")),
     ]
     for name, needles in checks:
         if any(n in text for n in needles):
@@ -834,17 +835,31 @@ def main():
         return
 
     profile_changed = PROFILE_MARKER not in seen
+    talento_bootstrap = TALENTO_BOOTSTRAP_MARKER not in seen
+
     if profile_changed:
         print(f"New search profile detected: {PROFILE_MARKER}. Sending all current matching listings once.")
         new_items = items
+        talento_bootstrap_ids = set()
     else:
-        new_items = [item for item in items if item["id"] not in seen]
+        regular_new = [item for item in items if item["id"] not in seen]
+        current_talento = [item for item in items if talento_bootstrap and model_name(item) == "Fiat Talento"]
+        talento_bootstrap_ids = {item["id"] for item in current_talento}
+
+        # Current Talento listings go first once; everything else keeps normal only-new behavior.
+        combined = current_talento + regular_new
+        deduped = {}
+        for item in combined:
+            deduped[item["id"]] = item
+        new_items = list(deduped.values())
 
     sent_count = 0
     stale_count = 0
 
     for item in new_items:
-        if not profile_changed and not listing_is_fresh(item):
+        is_talento_bootstrap = item["id"] in talento_bootstrap_ids
+
+        if not profile_changed and not is_talento_bootstrap and not listing_is_fresh(item):
             print(
                 f"[freshness skip] {item.get('source')} {item.get('url')} "
                 f"published={item.get('published_at')} (> {MAX_LISTING_AGE_HOURS}h)"
@@ -853,20 +868,23 @@ def main():
             stale_count += 1
             continue
 
-        if not profile_changed and sent_count >= 20:
+        if not profile_changed and not is_talento_bootstrap and sent_count >= 20:
             continue
 
         telegram_send(make_message(item), item)
         seen.add(item["id"])
         sent_count += 1
-        time.sleep(3.2 if profile_changed else 1.0)
+        time.sleep(3.2 if profile_changed or is_talento_bootstrap else 1.0)
 
     if profile_changed:
         seen = {x for x in seen if not x.startswith("profile:")}
         seen.add(PROFILE_MARKER)
 
+    if talento_bootstrap:
+        seen.add(TALENTO_BOOTSTRAP_MARKER)
+
     save_seen(seen)
-    mode = "all current listings" if profile_changed else "new listings"
+    mode = "all current listings" if profile_changed else ("current Talento + new listings" if talento_bootstrap else "new listings")
     print(f"Sent {sent_count} {mode}; skipped {stale_count} stale listings")
 
 
